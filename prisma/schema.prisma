@@ -1,0 +1,158 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// ===============================
+// MULTI-TENANT CORE MODELS
+// ===============================
+
+model Organization {
+  id          String   @id @default(cuid())
+  slug        String   @unique // Para URLs: cliente1.celeru-surveys.com
+  name        String
+  email       String
+  logo        String?
+  domain      String? // Custom domain para fase 3
+  
+  // Branding (Fase 2)
+  primaryColor String  @default("#0ea5e9")
+  customCss   String?
+  
+  // Settings - Como string JSON en SQLite
+  settings    String   @default("{}")
+  
+  // Status
+  isActive    Boolean  @default(true)
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  users       User[]
+  surveys     Survey[]
+  responses   SurveyResponse[]
+  integrations Integration[]
+  
+  @@map("organizations")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  avatar        String?
+  role          String   @default("MEMBER") // ADMIN, MEMBER, VIEWER
+  
+  // Multi-tenant
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Relations
+  createdSurveys Survey[]
+  
+  @@map("users")
+}
+
+// ===============================
+// SURVEY MODELS
+// ===============================
+
+model Survey {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  type        String   @default("NPS") // NPS, CSAT, CES, CUSTOM
+  status      String   @default("DRAFT") // DRAFT, PUBLISHED, PAUSED, CLOSED
+  
+  // SurveyJS Definition - Como string JSON en SQLite
+  surveyJson  String // La definición completa de SurveyJS
+  
+  // Multi-tenant
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  // Creator
+  createdById String
+  createdBy   User   @relation(fields: [createdById], references: [id])
+  
+  // Settings - Como string JSON
+  settings    String @default("{}")
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  responses   SurveyResponse[]
+  
+  @@map("surveys")
+}
+
+model SurveyResponse {
+  id          String   @id @default(cuid())
+  
+  // Survey relation
+  surveyId    String
+  survey      Survey   @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  
+  // Multi-tenant (for faster queries)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  // Response Data - Como string JSON en SQLite
+  responseData String // La respuesta completa de SurveyJS
+  
+  // Respondent info (from Freshdesk)
+  contactEmail String?
+  contactId    String? // ID en Freshdesk
+  ticketId     String? // Ticket que disparó la encuesta
+  
+  // Calculated fields (NPS, CSAT scores)
+  npsScore     Int?
+  csatScore    Int?
+  cesScore     Int?
+  
+  // Timestamps
+  createdAt    DateTime @default(now())
+  completedAt  DateTime?
+  
+  @@map("survey_responses")
+}
+
+// ===============================
+// INTEGRATION MODELS (Freshworks)
+// ===============================
+
+model Integration {
+  id          String   @id @default(cuid())
+  type        String   // FRESHDESK, FRESHCHAT, FRESHSALES, WEBHOOK
+  
+  // Multi-tenant
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  // Configuration - Como string JSON en SQLite
+  config      String // API keys, domains, etc.
+  isActive    Boolean @default(true)
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([organizationId, type]) // Una integración por tipo por org
+  @@map("integrations")
+}
+
